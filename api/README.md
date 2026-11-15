@@ -16,7 +16,7 @@ Os segredos ficam no `api/.dev.vars`, que o git ignora, um por linha:
 
 ```
 BARTE_ACADEMY_SUPABASE_SECRET_KEY=...
-BARTE_ACADEMY_CLAUDE_CODE_OAUTH_TOKEN=...
+BARTE_ACADEMY_ANTHROPIC_API_KEY=...
 ACCESS_AUD=...
 ACCESS_TEAM_DOMAIN=barte-academy.cloudflareaccess.com
 ```
@@ -26,11 +26,14 @@ ACCESS_TEAM_DOMAIN=barte-academy.cloudflareaccess.com
 O Cron chama o Claude pela Messages API (`src/claude/`), no começo de cada rodada, e grava as sugestões em
 `claude_suggestions`. A regra determinística confirma cada uma; sem sugestão, decide sozinha.
 
-- **Credencial:** o setup token do Claude Code, em `BARTE_ACADEMY_CLAUDE_CODE_OAUTH_TOKEN` (`Authorization: Bearer` +
-  `anthropic-beta: oauth-2025-04-20`). A esteira (`deploy-api.yml`) o põe no Worker com `wrangler secret put`. É uso
-  da assinatura fora do Claude Code: a Anthropic pode limitar ou bloquear.
-- **Plano B:** com `BARTE_ACADEMY_ANTHROPIC_API_KEY` no Worker, o cliente usa a chave (`x-api-key`) no lugar do
-  token. Só o secret muda.
+- **Credencial principal:** a chave da API da Anthropic, em `BARTE_ACADEMY_ANTHROPIC_API_KEY` (`x-api-key`). A
+  esteira (`deploy-api.yml`) a põe no Worker com `wrangler secret put`, a partir do secret do GitHub de mesmo nome.
+- **Caminho secundário:** o setup token do Claude Code, em `BARTE_ACADEMY_CLAUDE_CODE_OAUTH_TOKEN`
+  (`Authorization: Bearer` + `anthropic-beta: oauth-2025-04-20`), usado só quando a chave não existe. É uso da
+  assinatura fora do Claude Code: a Anthropic pode limitar ou bloquear.
+- **429 no log do Cron:** `HTTP 429 (limite de uso)` é limite passageiro (com `retry-after`, ou com a chave da
+  API): a próxima rodada tenta de novo. `HTTP 429 (credencial bloqueada: ...)` é o setup token sem `retry-after`:
+  esperar não resolve, ponha a chave da API no Worker (e no `.dev.vars`).
 - **Falha fechada:** sem credencial, com 429 ou 401, a rodada é interrompida, a falha é contada e logada sem
   segredo, e nenhuma linha de erro gasta tentativa. A regra decide sozinha.
 - **Tarefas:** `src/claude/tasks/` (`description-match`, #66; `probable-order`, #65). Para acrescentar uma, crie o

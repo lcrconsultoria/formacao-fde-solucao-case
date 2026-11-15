@@ -258,7 +258,7 @@ describe('runTasks (#66)', () => {
 });
 
 describe('falha global do Claude (#171)', () => {
-  it('429 interrompe a rodada sem gravar linha nem gastar tentativa, e conta a falha', async () => {
+  it('#credencial/AC-4 429 interrompe a rodada sem gravar linha nem gastar tentativa, e conta a falha', async () => {
     const { db, upserts } = fakeDb([]);
     const lines: string[] = [];
     let calls = 0;
@@ -277,7 +277,7 @@ describe('falha global do Claude (#171)', () => {
     expect(lines[0]).toContain('a regra decide sozinha');
   });
 
-  it('401 também interrompe a rodada', async () => {
+  it('#credencial/AC-4 401 também interrompe a rodada', async () => {
     const { db, upserts } = fakeDb([]);
     const denied = async (): Promise<{ r: string }> => {
       throw new ClaudeError('auth', 'HTTP 401 (credencial recusada)', 401);

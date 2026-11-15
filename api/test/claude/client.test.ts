@@ -56,6 +56,16 @@ describe('credentialsFromEnv (#171)', () => {
 });
 
 describe('ClaudeClient: autenticação (#171)', () => {
+  it('#credencial/AC-1 com as duas variáveis no ambiente, o fetch recebe x-api-key e nenhum authorization nem anthropic-beta', async () => {
+    const credentials = credentialsFromEnv({ BARTE_ACADEMY_ANTHROPIC_API_KEY: 'sk-secreta-api', BARTE_ACADEMY_CLAUDE_CODE_OAUTH_TOKEN: 'tok-secreto-oauth' });
+    expect(credentials).toBeDefined();
+    const { fetch, calls } = scripted([() => json([answer({ match: null })])]);
+    await ask(new ClaudeClient({ credentials: credentials as ClaudeCredentials, fetch }));
+    expect(calls[0]?.headers).toMatchObject({ 'x-api-key': 'sk-secreta-api' });
+    expect(calls[0]?.headers).not.toHaveProperty('authorization');
+    expect(calls[0]?.headers).not.toHaveProperty('anthropic-beta');
+  });
+
   it('setup token: Bearer, cabeçalho beta e o começo de system do Claude Code', async () => {
     const { fetch, calls } = scripted([() => json([answer({ match: 'x' })])]);
     await expect(ask(new ClaudeClient({ credentials: OAUTH, fetch }))).resolves.toEqual({ match: 'x' });
@@ -142,8 +152,8 @@ describe('ClaudeClient: laço de tool use (#171)', () => {
 });
 
 describe('ClaudeClient: falhas (#171)', () => {
-  it('429 vira rate_limit global, conta a falha e não leva segredo nem corpo', async () => {
-    const { fetch } = scripted([() => new Response('{"error":"tok-secreto-oauth corpo"}', { status: 429 })]);
+  it('#credencial/AC-4 429 com retry-after vira rate_limit global, conta a falha e não leva segredo nem corpo', async () => {
+    const { fetch } = scripted([() => new Response('{"error":"tok-secreto-oauth corpo"}', { status: 429, headers: { 'retry-after': '30' } })]);
     const client = new ClaudeClient({ credentials: OAUTH, fetch });
     const error = (await ask(client).catch((e: unknown) => e)) as ClaudeError;
     expect(error).toBeInstanceOf(ClaudeError);
@@ -152,7 +162,34 @@ describe('ClaudeClient: falhas (#171)', () => {
     expect(client.failures).toBe(1);
   });
 
-  it('401 vira auth, global', async () => {
+  it('#credencial/AC-3 429 sem retry-after com o setup token é credencial bloqueada, global, sem token nem corpo', async () => {
+    const { fetch } = scripted([() => new Response('{"error":"tok-secreto-oauth corpo"}', { status: 429 })]);
+    const client = new ClaudeClient({ credentials: OAUTH, fetch });
+    const error = (await ask(client).catch((e: unknown) => e)) as ClaudeError;
+    expect(error).toMatchObject({ kind: 'rate_limit', status: 429, isGlobal: true });
+    expect(error.message).toContain('credencial bloqueada');
+    expect(error.message).not.toContain('limite de uso');
+    expect(error.message).not.toContain('tok-secreto-oauth');
+    expect(error.message).not.toContain('corpo');
+    expect(client.failures).toBe(1);
+  });
+
+  it('#credencial/AC-3 429 com retry-after com o setup token continua limite de uso passageiro', async () => {
+    const { fetch } = scripted([() => new Response('', { status: 429, headers: { 'retry-after': '30' } })]);
+    const error = (await ask(new ClaudeClient({ credentials: OAUTH, fetch })).catch((e: unknown) => e)) as ClaudeError;
+    expect(error).toMatchObject({ kind: 'rate_limit', isGlobal: true });
+    expect(error.message).toBe('claude: HTTP 429 (limite de uso)');
+  });
+
+  it('#credencial/AC-3 429 sem retry-after com a chave da API continua limite de uso, sem a chave na mensagem', async () => {
+    const { fetch } = scripted([() => new Response('', { status: 429 })]);
+    const error = (await ask(new ClaudeClient({ credentials: KEY, fetch })).catch((e: unknown) => e)) as ClaudeError;
+    expect(error).toMatchObject({ kind: 'rate_limit', isGlobal: true });
+    expect(error.message).toBe('claude: HTTP 429 (limite de uso)');
+    expect(error.message).not.toContain('sk-secreta-api');
+  });
+
+  it('#credencial/AC-4 401 vira auth, global', async () => {
     const { fetch } = scripted([() => new Response('', { status: 401 })]);
     expect(await ask(new ClaudeClient({ credentials: OAUTH, fetch })).catch((e: unknown) => e)).toMatchObject({ kind: 'auth', isGlobal: true });
   });
@@ -194,13 +231,34 @@ describe('runClaudeRound: o Cron falha fechado (#171)', () => {
       upsert: async () => { calls.push('upsert'); return []; },
     }) as unknown as SupabaseRest;
 
-  it('sem credencial, pula e registra uma linha', async () => {
+  it('#credencial/AC-4 sem credencial, pula e registra uma linha', async () => {
     const lines: string[] = [];
     const calls: string[] = [];
     const round = await runClaudeRound(rest(calls), {}, { log: (l) => lines.push(l) });
     expect(round).toEqual({ ran: false, failedTasks: [], failures: 0 });
     expect(calls).toEqual([]);
     expect(lines).toEqual(['cron: sem credencial do Claude; tarefas do Claude puladas e a regra decide sozinha']);
+  });
+
+  it('#credencial/AC-3 #credencial/AC-4 429 sem retry-after do setup token: a rodada para, nenhuma linha gasta tentativa e o log diz credencial bloqueada sem segredo', async () => {
+    const { runTasks } = await import('../../src/claude/runner.js');
+    const { fetch } = scripted([() => new Response('', { status: 429 })]);
+    const client = new ClaudeClient({ credentials: OAUTH, fetch });
+    const upserts: unknown[] = [];
+    const db = { select: async () => [], upsert: async (...args: unknown[]) => (upserts.push(args), []) };
+    const task = {
+      name: 'teste',
+      pending: async () => ({ requests: ['a', 'b'].map((key) => ({ key, input: key })), dropped: 0 }),
+      run: async (_input: unknown, askClaude: typeof client.ask) => askClaude({ system: 's', prompt: 'p', schema: SCHEMA }),
+    };
+    const lines: string[] = [];
+    const result = await runTasks({ db, ask: client.ask, tasks: [task], log: (l) => lines.push(l), secrets: ['tok-secreto-oauth'] });
+    expect(client.calls).toBe(1);
+    expect(upserts).toHaveLength(0);
+    expect(result.failedTasks).toEqual(['teste']);
+    expect(lines.join('\n')).toContain('credencial bloqueada');
+    expect(lines.join('\n')).toContain('a regra decide sozinha');
+    expect(lines.join('\n')).not.toContain('tok-secreto-oauth');
   });
 
   it('com o banco falhando, não lança e não vaza o texto do erro', async () => {

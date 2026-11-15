@@ -72,9 +72,22 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.BARTE_ACADEMY_CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.BARTE_ACADEMY_CLOUDFLARE_ACCOUNT_ID }}
           BARTE_ACADEMY_SUPABASE_SECRET_KEY: ${{ secrets.BARTE_ACADEMY_SUPABASE_SECRET_KEY }}
-      # O setup token do Claude Code (#171) só existe no Worker, como a chave do Supabase: entra pela entrada
-      # padrão, sem aparecer no log nem no git. O secret do GitHub já existe; o plano B (chave da API,
-      # BARTE_ACADEMY_ANTHROPIC_API_KEY) é um secret do Worker que se põe do mesmo jeito, sem mudar o código.
+      # A chave da API da Anthropic (#171) é a credencial principal do Claude no Worker. Entra pela entrada
+      # padrão, sem aparecer no log nem no git. Enquanto o secret do GitHub não existir, o valor vem vazio:
+      # o passo é pulado, para não quebrar o deploy nem gravar um secret vazio por cima do que já está no Worker.
+      - run: |
+          if [ -z "$BARTE_ACADEMY_ANTHROPIC_API_KEY" ]; then
+            echo "Secret BARTE_ACADEMY_ANTHROPIC_API_KEY ausente no environment producao: passo pulado."
+          else
+            printf '%s' "$BARTE_ACADEMY_ANTHROPIC_API_KEY" | npx wrangler secret put BARTE_ACADEMY_ANTHROPIC_API_KEY
+          fi
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.BARTE_ACADEMY_CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.BARTE_ACADEMY_CLOUDFLARE_ACCOUNT_ID }}
+          BARTE_ACADEMY_ANTHROPIC_API_KEY: ${{ secrets.BARTE_ACADEMY_ANTHROPIC_API_KEY }}
+      # O setup token do Claude Code (#171) é o caminho secundário: o cliente só o usa sem a chave da API acima,
+      # e a Anthropic pode barrá-lo (429 sem retry-after). Só existe no Worker, como a chave do Supabase: entra
+      # pela entrada padrão, sem aparecer no log nem no git.
       - run: printf '%s' "$BARTE_ACADEMY_CLAUDE_CODE_OAUTH_TOKEN" | npx wrangler secret put BARTE_ACADEMY_CLAUDE_CODE_OAUTH_TOKEN
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.BARTE_ACADEMY_CLOUDFLARE_API_TOKEN }}
