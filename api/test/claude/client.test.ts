@@ -43,7 +43,7 @@ function scripted(responses: (() => Response | Promise<Response>)[]): { fetch: F
 const ask = (client: ClaudeClient) => client.ask<{ match: string | null }>({ system: 'sistema', prompt: 'pergunta', schema: SCHEMA });
 
 describe('credentialsFromEnv (#171)', () => {
-  it('a chave da API (plano B) tem prioridade sobre o setup token', () => {
+  it('a chave da API é a credencial principal e tem prioridade sobre o setup token', () => {
     expect(credentialsFromEnv({ BARTE_ACADEMY_ANTHROPIC_API_KEY: ' k ', BARTE_ACADEMY_CLAUDE_CODE_OAUTH_TOKEN: 't' })).toEqual({ kind: 'api-key', apiKey: 'k' });
   });
   it('sem a chave, usa o setup token', () => {

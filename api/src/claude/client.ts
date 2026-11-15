@@ -111,7 +111,7 @@ type Block = Record<string, unknown>;
 type Message = { readonly role: 'user' | 'assistant'; readonly content: string | Block[] };
 
 /**
- * #credencial O 429 do setup token sem `retry-after` não é limite passageiro: é a credencial barrada, e esperar
+ * #171 O 429 do setup token sem `retry-after` não é limite passageiro: é a credencial barrada, e esperar
  * não resolve. Segue `rate_limit` (e global, a rodada para), com a mensagem própria para o log do Cron.
  * Só o cabeçalho e o tipo da credencial entram na decisão; nada do corpo nem da credencial vai à mensagem.
  */
